@@ -3,6 +3,14 @@ import csv
 import os
 import subprocess
 
+# NOTE :
+# This skips ANY sites found on ANY chromosome where
+# the other finder did not find any sites.
+
+# Eg, if Mutect found no sites on chr13, all sites tgen found on chr13
+# will be dropped because vcftools refuses to process that chrom if it's only
+# in one VCF, so it needs to be excluded.
+
 # Preprocessing steps before using this script:
 #
 # 1. Create a directory with all vcfs available untarred. Example:
@@ -21,14 +29,24 @@ import subprocess
 
 # Configuration
 # 
+# Will run tgen as file 1 and mutect as file 2.
 tgen_mapping_file = "patient.tgen.tsv"
 mutect_mapping_file = "patient.mutect.tsv"
+
+
 path_to_vcftools_exe = "vcftools" # use full path or put it in your PATH
 
-out_basedir = "results"
+out_basedir = "results" # all output stored here; dir must exist
+OUTPUT_SUFFIX = ".output" # what to add to the patient_id to creat dirname
+VCFTOOLS_OUTNAME = "out.diff.sites_in_files" # file output by vcftools
+
+# in out.diff format, without header line
+OUTSITES_BOTH = "sites_found_in_both_files"
+OUTSITES_TGEN = "sites_found.tgen_only"
+OUTSITES_MUTECT = "sites_found.mutect_only"
 
 def run_vcftools(item):
-   outdir = out_basedir + "/" + item[0] + ".output"
+   outdir = out_basedir + "/" + item[0] + OUTPUT_SUFFIX
    file_info = item[1]
    tgen_path = file_info["tgen_vcf"]
    cleaned_mutect_path = file_info["cleaned_mutect_vcf"]
@@ -58,12 +76,49 @@ def run_vcftools(item):
 
 def make_nochr_arg(x):
    return ["--not-chr", x]
- 
+
+# Creates the following derived files
+# example using patient ID of 0001
+# sites_found_in_both_files - same format as out.diff.sites_in_files ;
+#  only sites in both files
+# 
+# For sites found in both files, the mutect & tgen vcf lines [w headers
+# sites_found.both.mutect.0001.vcf
+# sites_found.both.tgen.0001.vcf
+# 
+# 
+# tgen vcf lines for sites found only in that file:
+# tgen_only.sites_found.0001.vcf
+# 
+# mutect vcf lines for sites found only in that file:
+# mutect_only.sites_found.0001.vcf 
 def make_extra_files(item):
-   # TODO correctly use output pase dir
-   # the strings for these filename found in run_vcftools above
-   outdir = item[0] + ".output"
-   # What to do here :
+   print item
+   patient_id = item[0]
+   outdir = out_basedir + "/" + patient_id + OUTPUT_SUFFIX + "/"
+
+   # will always rewrite extra files
+   print "writing extra files..."
+
+   # Parse the vcftools output file and divvy its lines up
+   # into 3 files that match the format.
+   with open(outdir + VCFTOOLS_OUTNAME, "rb") as src:
+      # could use DictReader but then have to deal with getting output
+      # fields in the right order
+      reader = csv.reader(src, delimiter="\t")
+      header = reader.next()
+      col = header.index("IN_FILE") # get the column for 1, 2, or B value
+      # distribute to the correct output file
+      # lol nesting
+      with open(outdir + OUTSITES_BOTH, "wb") as both:
+         with open(outdir + OUTSITES_TGEN, "wb") as tgen:
+            with open(outdir + OUTSITES_MUTECT, "wb") as mutect:
+               which_outfile = { "B":both, "1":tgen, "2":mutect}
+               for cols in reader:
+                  which_writer = which_outfile[cols[col]]
+                  # and join them up again and write.
+                  which_writer.write("\t".join(cols)+os.linesep)
+                  
 
 
    # TODO do the header lines stuff later
@@ -97,7 +152,7 @@ def clean_mutect_vcf(mutect_filename):
 
    # Skip cleaning if a cleaned file already exists.
    if os.path.isfile(cleaned_filename):
-      print "Already cleaned %s, skipping." % mutect_filename
+      print "Cleaned %s found; skipping. Delete file to re-clean." % mutect_filename
       return {"cleaned_filename" : cleaned_filename, "mutect_header" : headers}
 
 
@@ -190,9 +245,8 @@ def main():
          # throws KeyError here if there's a patient in the tgen file
          # with no corresponding mutect file
 
-   # test
-   print MAPPING
-   #exit() # TODO
+   #print MAPPING
+
    # run vcftools on each pair
    # and create additional output files
    for item in MAPPING.items():
