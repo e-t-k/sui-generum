@@ -1,0 +1,19 @@
+October 10 2016
+
+What this is for:
+Making 2 files:
+expression.tsv
+metadata.tsv
+
+expression contains x+1 columns : x samples and 1 gene names
+metadata contains 13 columns total of stuff, and 1 row per sample (x rows total)
+we have to aggregate two different metadata tsvs to form the result
+and we also have to make sure the result contains EXACTLY the samples that the expression contains.
+
+So - if expression doesn't mention a sample that the metadata does -- remove the METADATA sample.
+If expression does mention a sample that metadata doesn't -- add an empty METADATA line for that sample.
+
+So this script does it.
+See the python for the inputs and outputs file names -- just run everything from current working dir.
+
+python needs the list of samples from the expression -- you can use the bash script to pull them out.
