@@ -4,18 +4,17 @@ import csv
 # Inputs (hardcoded, yah)
 
 # 1 tsv where we rename samples
-MISC_TSV = "clindata.provisional.oct10.tsv"
+MISC_TSV = "clindata.2016-10-13.tsv"
 # 1 tsv where we dont
 COHORT_TSV = "clin.v3.tab"
-# mapping file
+# mapping file for renaming samples
 MAPPING_FILE="IDENTIFIERS.tsv"
+# mapping file for study namespaces
+STUDY_MAPPING_FILE="Dataset_to_Study.tsv"
 # expression sample list  
 EXPRESSION_SAMPLES = "samples.from.expression.txt"
-# header row for the output file
-OUTPUT_HEADER = "header.for.output.file.tsv"
 
 # Files we will create
-MISC_TSV_RENAMED = "clindata.newsampleids.tsv"
 RESULT_METADATA_TSV = "output.tsv"
 
 # TODO
@@ -38,84 +37,69 @@ RESULT_METADATA_TSV = "output.tsv"
 ## RUN IT ##
 
 def main():
+   # Get the samples from the expression file
+   with open(EXPRESSION_SAMPLES, "r") as samples:
+      expr_samples = set(line.strip() for line in samples)
 
-   # 1. Rename MISC samples per mapping file
 
-
-   # get the mapping
+   # Get the mapping
    with open(MAPPING_FILE, "r") as ids:
       reader=csv.reader(ids, delimiter="|")
       their_ids_to_ours=dict((r[0], r[1]) for r in reader)
 
-   print("mapped:")
-   print(their_ids_to_ours)
-   # rename the samples
-   with open(MISC_TSV, "r") as md_tsv_in:
-      with open(MISC_TSV_RENAMED, "w") as md_tsv_out:
-         writer=csv.writer(md_tsv_out, delimiter="\t", lineterminator="\n")
-         reader=csv.reader(md_tsv_in, delimiter="\t")
-         for line in reader:
-            check_this_sample = line[0]
-            if(check_this_sample in their_ids_to_ours):
-               found_id = their_ids_to_ours[line[0]]
-               print("found id to rename")
-               print found_id
-               line[0] = found_id
-            # then write the line
-            writer.writerow(line)
-      
-   # 2. Get  samplenames that we have expression data for
-   with open(EXPRESSION_SAMPLES, "r") as samples:
-      expr_samples = set(line.strip() for line in samples)
 
-   print("got expression samps")
-   #print expr_samples
+   # TODO get the study namespace mapping as well  
+ 
+   # then, we need to get the rows from cohort_tsv so we know the
+   # output row order before we do anything else.
 
-   ####  Begin making the final metadata file! ###
-   with open(RESULT_METADATA_TSV, "w") as result_md:
-      result_writer=csv.writer(result_md, delimiter="\t", lineterminator="\n")
+   with open(COHORT_TSV, "r") as cohort_md:
+      cohort_reader=csv.DictReader(cohort_md, delimiter="\t")
+      # Get the fieldname order from COHORT_TSV - we will use that in the result file
+      field_order=cohort_reader.fieldnames
 
-      # Should probably give the output a header line
-      with open(OUTPUT_HEADER, "r") as headerline:
-         result_md.write(headerline.readline())
-
-      # 3a and 3b duplicate code, oops. could fix. TODO.
-
-      # 3a. Go through the cohort md tsv and discard samples not in set
-      with open(COHORT_TSV, "r") as cohort_md:
-         cohort_reader=csv.reader(cohort_md, delimiter="\t")
+      with open(RESULT_METADATA_TSV, "w") as result_md:
+         result_writer=csv.DictWriter(result_md, field_order, delimiter="\t", lineterminator="\n")
+         result_writer.writeheader()
          for line in cohort_reader:
-            sample_id = line[0]
-            # we could make this faster by just attempting to remove
-            # and catching the keyerror to know it wasnt there
-            
-            # if the metadata is in expression   
+            sample_id = line['sampleID']
+            # if the metadata is in expression, write it
             if(sample_id in expr_samples):
+               # add the study namespace TODO
                result_writer.writerow(line)
                expr_samples.remove(sample_id)
-            # if not, line isn't written to output
-      # 3b - also go through the renamed misc tsv
-      with open(MISC_TSV_RENAMED, "r") as misc_md:
-         misc_reader=csv.reader(misc_md, delimiter="\t")
-         for line in misc_reader:
-            sample_id = line[0]
-            if(sample_id in expr_samples):
-               result_writer.writerow(line)
-               expr_samples.remove(sample_id)
-      # ok.
-      # at this point, we've found all the overlap
-      # now we just need to make fake lines for any expr_samples
-      # we didn't find in the metadata.
+         # with open misc  
+         with open(MISC_TSV, "r") as misc_md:
+            misc_reader=csv.DictReader(misc_md, delimiter="\t")
 
-      for sample in expr_samples :
-         print("adding extra sample")
-         print sample
-         # consstruct the line
-         newline = [sample] + [""] * 12 # 13 columns total.
-         result_writer.writerow(newline)
+            # If there are fields in the cohort tsv that aren't in
+            # this TSV, give up and yell. Will catch renamed fields too
+            extrafields = set(field_order) - set(misc_reader.fieldnames)
+            if(extrafields):
+               print("Metadata file is missing the following necessary fields! %s" % extrafields)
+               exit()
+
+            # For each item in the misc tsv
+            # Rename the sample if we have a mapping and add study namespace
+            for line in misc_reader:
+               print line
+               check_this_sample=line['sampleID']
+               found_id = check_this_sample # in case it doesnt need renaming
+               if(check_this_sample in their_ids_to_ours):
+                  found_id=their_ids_to_ours[check_this_sample]
+                  print("found ID to rename: %s to %s" % (check_this_sample, found_id))
+                  line['sampleID'] = found_id
+               # add the study namespace TODO
+               if(found_id in expr_samples):
+                  result_writer.writerow(line)
+                  expr_samples.remove(found_id) 
+         # done with the input dicts
+         # now, make lines for any samples we didnt' find in the metadata
+         for sample in expr_samples :
+            print("sample %s not found in metadata -- adding" % sample)
+            newline = {"sampleID" : sample}
+            result_writer.writerow(newline) # omitted fields are blank
     
-  
-
    print("done; result is in output.tsv")
 
 if __name__ == '__main__':
