@@ -1,4 +1,6 @@
-#!/usr/bin/python
+#!/usr/bin/python2.7
+
+# requires python 2.7 for writeheader
 import csv
 
 # Inputs (hardcoded, yah)
@@ -10,20 +12,12 @@ COHORT_TSV = "clin.v3.tab"
 # mapping file for renaming samples
 MAPPING_FILE="IDENTIFIERS.tsv"
 # mapping file for study namespaces
-STUDY_MAPPING_FILE="Dataset_to_Study.tsv"
+STUDY_MAPPING_FILE="metadata_mapping_to_study.tsv"
 # expression sample list  
 EXPRESSION_SAMPLES = "samples.from.expression.txt"
 
 # Files we will create
 RESULT_METADATA_TSV = "output.tsv"
-
-# TODO
-# Need to account for study delimiters
-# Probably what will happen ultimately : we will need
-# study delimiter to be a new column in the 
-# COHORT_TSV and MISC_TSV. I mean preferably the delimiter
-# would just be already attached to the sample name.
-# but then we need to add it properly in the mapping file as well. 
 
 # note : 
 # if a sample is listed multiple times in the metadata tsvs,
@@ -48,7 +42,10 @@ def main():
       their_ids_to_ours=dict((r[0], r[1]) for r in reader)
 
 
-   # TODO get the study namespace mapping as well  
+   # get the study namespace mapping as well  
+   with open(STUDY_MAPPING_FILE, "r") as studies:
+      reader=csv.reader(studies, delimiter="|")
+      studyname_to_namespace=dict((r[0],r[1]) for r in reader) 
  
    # then, we need to get the rows from cohort_tsv so we know the
    # output row order before we do anything else.
@@ -61,13 +58,27 @@ def main():
       with open(RESULT_METADATA_TSV, "w") as result_md:
          result_writer=csv.DictWriter(result_md, field_order, delimiter="\t", lineterminator="\n")
          result_writer.writeheader()
+            
          for line in cohort_reader:
             sample_id = line['sampleID']
+            # and get the study ID
+            dataset_label = line['Dataset']
+            if(dataset_label in studyname_to_namespace):
+               study_id = studyname_to_namespace[dataset_label]
+            else:
+               study_id = "NOT_FOUND"
+               print("Couldn't find study id for Dataset='%s'" % dataset_label)
+
+            # fully qualified sample ID
+            fq_sample_id = study_id + "/" + sample_id
             # if the metadata is in expression, write it
-            if(sample_id in expr_samples):
-               # add the study namespace TODO
+            if(fq_sample_id in expr_samples):
+               # add the study namespace back to the metadata
+               line['sampleID'] = fq_sample_id
                result_writer.writerow(line)
-               expr_samples.remove(sample_id)
+               expr_samples.remove(fq_sample_id)
+            else:
+               print("Didn't find sample %s in expression data, dropping." % fq_sample_id)
          # with open misc  
          with open(MISC_TSV, "r") as misc_md:
             misc_reader=csv.DictReader(misc_md, delimiter="\t")
@@ -81,18 +92,33 @@ def main():
 
             # For each item in the misc tsv
             # Rename the sample if we have a mapping and add study namespace
+            # lots of duplicated logic with the stuff above 
             for line in misc_reader:
-               print line
                check_this_sample=line['sampleID']
+               # See whether the sample needs renaming - if so , run that mapping
                found_id = check_this_sample # in case it doesnt need renaming
                if(check_this_sample in their_ids_to_ours):
                   found_id=their_ids_to_ours[check_this_sample]
                   print("found ID to rename: %s to %s" % (check_this_sample, found_id))
                   line['sampleID'] = found_id
-               # add the study namespace TODO
-               if(found_id in expr_samples):
+               # then add the study namespace
+               # repeated from cohort stuff above  Iguess
+               dataset_label = line['Dataset']
+               if(dataset_label in studyname_to_namespace):
+                  study_id = studyname_to_namespace[dataset_label]
+               else:
+                  study_id = "NOT_FOUND"
+                  print("Couldn't find study id for Dataset='%s'" % dataset_label)
+               fq_found_id = study_id + "/" + found_id
+
+               # if we found it AND we have the sample in the expression file,
+               # write it with teh study namespace back to the metadata
+               if(fq_found_id in expr_samples):
+                  line['sampleID'] = fq_found_id
                   result_writer.writerow(line)
-                  expr_samples.remove(found_id) 
+                  expr_samples.remove(fq_found_id) 
+               else:
+                  print("Didn't find sample %s in expression data, dropping." % fq_found_id)
          # done with the input dicts
          # now, make lines for any samples we didnt' find in the metadata
          for sample in expr_samples :
