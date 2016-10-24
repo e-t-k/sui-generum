@@ -6,7 +6,7 @@ import csv
 # Inputs (hardcoded, yah)
 
 # 1 tsv where we rename samples
-MISC_TSV = "clindata.2016-10-13.tsv"
+MISC_TSV = "clin.misc.tsv"
 # 1 tsv where we dont
 COHORT_TSV = "clin.v3.tab"
 # mapping file for renaming samples
@@ -34,7 +34,6 @@ def main():
    # Get the samples from the expression file
    with open(EXPRESSION_SAMPLES, "r") as samples:
       expr_samples = set(line.strip() for line in samples)
-
 
    # Get the mapping
    with open(MAPPING_FILE, "r") as ids:
@@ -78,7 +77,7 @@ def main():
                result_writer.writerow(line)
                expr_samples.remove(fq_sample_id)
             else:
-               print("Didn't find sample %s in expression data, dropping." % fq_sample_id)
+               print("Didn't find sample '%s' in expression data, dropping." % fq_sample_id)
          # with open misc  
          with open(MISC_TSV, "r") as misc_md:
             misc_reader=csv.DictReader(misc_md, delimiter="\t")
@@ -90,10 +89,20 @@ def main():
                print("Metadata file is missing the following necessary fields! %s" % extrafields)
                exit()
 
+            # If there are fields in the misc tsv NOT in the cohort, be aware and drop them
+            remove_these_fields = set(misc_reader.fieldnames) - set(field_order)
+            if(remove_these_fields):
+               print("will drop the extra fields %s from misc tsv" % remove_these_fields)
+
             # For each item in the misc tsv
             # Rename the sample if we have a mapping and add study namespace
             # lots of duplicated logic with the stuff above 
             for line in misc_reader:
+               #print("trying line %s" % line)
+               for dropfield in remove_these_fields:
+                  del line[dropfield]
+               #print("line with fields dropped is %s" % line)
+
                check_this_sample=line['sampleID']
                # See whether the sample needs renaming - if so , run that mapping
                found_id = check_this_sample # in case it doesnt need renaming
@@ -118,7 +127,7 @@ def main():
                   result_writer.writerow(line)
                   expr_samples.remove(fq_found_id) 
                else:
-                  print("Didn't find sample %s in expression data, dropping." % fq_found_id)
+                  print("Didn't find sample '%s' in expression data, dropping." % fq_found_id)
          # done with the input dicts
          # now, make lines for any samples we didnt' find in the metadata
          for sample in expr_samples :
