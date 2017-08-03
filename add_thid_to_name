@@ -1,0 +1,35 @@
+#!/usr/bin/python
+
+# pass in a two column file:
+# first is uuid, second is thid
+# comma separated
+# it will rename the directory (only)  named with UUID to THID_UUID
+
+import sys
+import os
+
+if len(sys.argv) != 2:
+   print "Usage: add_thid_to_name uuid-thid-list.txt"
+   sys.exit(0)
+
+pathlistf = sys.argv[1]
+
+with open(pathlistf, "r") as pathlist:
+   for path in pathlist:
+      names = path.rstrip().split(",")
+      if len(names) != 2:
+         print( "ERROR for dir '{}': Found {} comma-separated elements; expected 2.".format(path.rstrip(), len(names)))
+         continue
+      uuid = names[0]
+      thid = names[1]
+      newname = "{}_{}".format(thid, uuid)
+      # The following is full of race conditions - should be ok as these files are not being
+      # programmatically clobbered in general
+      if not os.path.isdir(uuid):
+         print("ERROR: '{}' couldn't be found or is not a dir".format(uuid))
+         continue
+      if os.path.exists(newname):
+         print("ERROR: can't rename '{}' to '{}'; the destination already exists".format(uuid, newname))
+         continue 
+      os.rename(uuid, newname)
+      print("renamed {} to {}").format(uuid, newname)

@@ -1,0 +1,29 @@
+#!/usr/bin/python
+
+# pass in a list of paths
+# it will return a two column file
+# with whether the file at that path exists or not.
+# Resolves all symlinks before confirming existence
+
+import sys
+import os
+
+if len(sys.argv) != 2:
+   print "Usage: do_files_exist list-of-paths.txt"
+   sys.exit(0)
+
+pathlistf = sys.argv[1]
+
+print("path\tdoes_file_exist")
+
+with open(pathlistf, "r") as pathlist:
+   for path in pathlist:
+      path = path.rstrip()
+      try:
+         realpath = os.path.realpath(path)
+         if(os.path.isfile(realpath)):
+            print "{}\t{}".format(path, "exists")
+         else:
+            print "{}\t{}".format(path, "does_not_exist")
+      except:
+         print "{}\t{}".format(path, "ERROR_checking_file")
